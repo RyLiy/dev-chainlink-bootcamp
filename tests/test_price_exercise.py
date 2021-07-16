@@ -1,0 +1,81 @@
+import time
+import pytest
+from brownie import PriceExercise, network
+from scripts.helpful_scripts import LOCAL_BLOCKCHAIN_ENVIRONMENTS, get_account
+ 
+ 
+@pytest.fixture
+def deploy_price_exercise(get_oracle, get_job_id, chainlink_fee, get_link_token, get_eth_usd_price_feed_address):
+    # Arrange
+    address = get_eth_usd_price_feed_address
+    # Arrange / Act
+    price_exercise = PriceExercise.deploy(
+        get_oracle.address,
+        get_job_id,
+        chainlink_fee,
+        get_link_token.address,
+        address,
+        {"from": get_account()},
+    )
+    # Assert
+    assert price_exercise is not None
+    return price_exercise
+ 
+ 
+def test_send_api_request_local(
+    deploy_price_exercise,
+    get_link_token,
+    chainlink_fee,
+    get_oracle,
+    get_data,
+):
+    # Arrange
+    if network.show_active() not in LOCAL_BLOCKCHAIN_ENVIRONMENTS:
+        pytest.skip("Only for local testing")
+    price_exercise = deploy_price_exercise
+    get_link_token.transfer(
+        price_exercise.address, chainlink_fee * 2, {"from": get_account()}
+    )
+    # Act
+    transaction_receipt = price_exercise.requestPriceData({"from": get_account()})
+    requestId = transaction_receipt.events["ChainlinkRequested"]["id"]
+    # Assert
+    get_oracle.fulfillOracleRequest(requestId, get_data, {"from": get_account()})
+    assert isinstance(price_exercise.priceFeedGreater(), bool)
+ 
+ 
+def test_send_api_request_testnet(deploy_price_exercise, get_link_token, chainlink_fee):
+    # Arrange
+    if network.show_active() not in ["kovan", "rinkeby", "mainnet"]:
+        pytest.skip("Only for local testing")
+    price_exercise = deploy_price_exercise
+    get_link_token.transfer(
+        price_exercise.address, chainlink_fee * 2, {"from": get_account()}
+    )
+    # Act
+    transaction = price_exercise.requestPriceData({"from": get_account()})
+    # Assert
+    assert transaction is not None
+    transaction.wait(2)
+    time.sleep(35)
+    assert isinstance(price_exercise.priceFeedGreater(), bool)
+    #assert price_exercise.volume() > 0
+ 
+def test_can_get_latest_price(get_oracle, get_job_id, chainlink_fee, get_link_token, get_eth_usd_price_feed_address):
+    # Arrange
+    address = get_eth_usd_price_feed_address
+    # Arrange / Act
+    price_exercise = PriceExercise.deploy(
+        get_oracle.address,
+        get_job_id,
+        chainlink_fee,
+        get_link_token.address,
+        address,
+        {"from": get_account()},
+    )
+    # price_exercise = deploy_price_exercise
+    # Assert
+    value = price_exercise.getLatestPrice()
+    assert isinstance(value, int)
+    assert value > 0
+ 
